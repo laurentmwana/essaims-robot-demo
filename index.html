@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Essaim CeNN — simulation 2D</title>
+<style>
+  :root{
+    --bg: #070b09;
+    --panel: #0d1712;
+    --panel-border: #1c2d24;
+    --ink: #d8f2e4;
+    --ink-dim: #6f9483;
+    --accent: #6dffb3;
+    --accent-dim: #2f6b52;
+    --link: #57c9e8;
+    --warn: #ffb454;
+    --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  :root:not([data-theme="light"]) { color-scheme: dark; }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]){
+      --bg:#eef3f0; --panel:#ffffff; --panel-border:#cfe0d7;
+      --ink:#0e2019; --ink-dim:#5a7568; --accent:#0f9c62; --accent-dim:#bfe9d6; --link:#0d7ea8;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    height: 100%; margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); overscroll-behavior: none;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  #app { position: relative; width: 100%; height: 100%; min-height: 560px; overflow: hidden; }
+  canvas { display:block; width:100%; height:100%; touch-action:none; }
+
+  .brand{
+    position:absolute; top: calc(16px + env(safe-area-inset-top,0px)); left:16px;
+    font-family: var(--mono); font-size:13px; line-height:1.5; color: var(--ink-dim);
+    pointer-events:none; user-select:none;
+  }
+  .brand b{ color: var(--accent); font-weight:600; letter-spacing:.01em; }
+
+  .telemetry{
+    position:absolute; left:16px; bottom: calc(16px + env(safe-area-inset-bottom,0px));
+    font-family: var(--mono); font-size:12px; color: var(--ink-dim);
+    background: rgba(13,23,18,.55); backdrop-filter: blur(6px);
+    border: 1px solid var(--panel-border); border-radius: 8px;
+    padding: 10px 12px; min-width: 190px; pointer-events:none;
+  }
+  .telemetry div{ display:flex; justify-content:space-between; gap:16px; padding:1px 0; }
+  .telemetry span.v{ color: var(--ink); }
+
+  .panel{
+    position:absolute; top: calc(16px + env(safe-area-inset-top,0px)); right:16px;
+    width: 268px; max-width: calc(100vw - 32px);
+    background: var(--panel); border:1px solid var(--panel-border); border-radius:12px;
+    padding: 16px; max-height: calc(100% - 32px); overflow-y:auto;
+  }
+  .panel h1{
+    font-size:14px; margin:0 0 2px; font-weight:600; color:var(--ink);
+  }
+  .panel .sub{
+    font-size:12px; color:var(--ink-dim); margin:0 0 14px; line-height:1.5;
+  }
+  .row{ margin-bottom: 12px; }
+  .row label{
+    display:flex; justify-content:space-between; font-size:12px; color:var(--ink-dim);
+    margin-bottom: 5px; font-family: var(--mono);
+  }
+  .row label span.val{ color: var(--accent); }
+  input[type=range]{
+    -webkit-appearance:none; width:100%; height:3px; border-radius:2px;
+    background: var(--panel-border); outline:none; margin:0;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:13px; height:13px; border-radius:50%;
+    background: var(--accent); cursor:pointer; border:2px solid var(--panel);
+    box-shadow: 0 0 0 1px var(--accent-dim);
+  }
+  input[type=range]::-moz-range-thumb{
+    width:13px; height:13px; border-radius:50%; background: var(--accent);
+    cursor:pointer; border:2px solid var(--panel); box-shadow: 0 0 0 1px var(--accent-dim);
+  }
+  .btnrow{ display:flex; gap:8px; margin-top:6px; margin-bottom:14px; }
+  button{
+    font-family: var(--sans); font-size:12.5px; font-weight:600; cursor:pointer;
+    border-radius:7px; border:1px solid var(--panel-border); padding:8px 10px;
+    background: transparent; color: var(--ink); flex:1; transition: background .15s, color .15s;
+  }
+  button.primary{ background: var(--accent); color:#062012; border-color: var(--accent); }
+  button:hover{ background: var(--accent-dim); }
+  button.primary:hover{ background: var(--accent); opacity:.9; }
+  .toggles{ display:flex; flex-direction:column; gap:8px; margin-bottom: 4px; }
+  .toggle{ display:flex; align-items:center; gap:8px; font-size:12.5px; color: var(--ink-dim); cursor:pointer; }
+  .toggle input{ accent-color: var(--accent); }
+  hr{ border:none; border-top:1px solid var(--panel-border); margin: 14px 0; }
+  .legend{ font-size:11.5px; color: var(--ink-dim); line-height:1.6; }
+  .legend b{ color: var(--ink); }
+  .legend code{ font-family:var(--mono); color: var(--link); }
+
+  @media (max-width: 640px){
+    .panel{ width: calc(100vw - 32px); }
+    .telemetry{ display:none; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="c"></canvas>
+
+  <div class="brand"><b>essaim·CeNN</b><br>contrôle décentralisé par réseau de neurones cellulaires</div>
+
+  <div class="telemetry" id="telemetry">
+    <div><span>robots</span><span class="v" id="tRobots">—</span></div>
+    <div><span>voisins (moy.)</span><span class="v" id="tNeighbors">—</span></div>
+    <div><span>cohésion</span><span class="v" id="tCohesion">—</span></div>
+    <div><span>t</span><span class="v" id="tTime">—</span></div>
+  </div>
+
+  <div class="panel">
+    <h1>Paramètres du CeNN</h1>
+    <p class="sub">Chaque robot est une cellule. Il ne perçoit que ses voisins dans le rayon de détection — la commande émerge localement, sans coordinateur central.</p>
+
+    <div class="row">
+      <label>robots <span class="val" id="vN">60</span></label>
+      <input type="range" id="n" min="8" max="180" value="60" step="1">
+    </div>
+    <div class="row">
+      <label>rayon de détection <span class="val" id="vR">70</span></label>
+      <input type="range" id="r" min="20" max="160" value="70" step="1">
+    </div>
+    <div class="row">
+      <label>séparation A₁ <span class="val" id="vSep">1.4</span></label>
+      <input type="range" id="sep" min="0" max="3" value="1.4" step="0.05">
+    </div>
+    <div class="row">
+      <label>alignement A₂ <span class="val" id="vAli">1.0</span></label>
+      <input type="range" id="ali" min="0" max="3" value="1.0" step="0.05">
+    </div>
+    <div class="row">
+      <label>cohésion A₃ <span class="val" id="vCoh">0.9</span></label>
+      <input type="range" id="coh" min="0" max="3" value="0.9" step="0.05">
+    </div>
+    <div class="row">
+      <label>bruit I <span class="val" id="vNoise">0.15</span></label>
+      <input type="range" id="noise" min="0" max="1" value="0.15" step="0.02">
+    </div>
+    <div class="row">
+      <label>vitesse</label>
+      <input type="range" id="speed" min="20" max="160" value="70" step="5">
+    </div>
+
+    <div class="btnrow">
+      <button class="primary" id="play">Pause</button>
+      <button id="reset">Réinitialiser</button>
+    </div>
+
+    <div class="toggles">
+      <label class="toggle"><input type="checkbox" id="showLinks" checked> liens de voisinage</label>
+      <label class="toggle"><input type="checkbox" id="showRadius"> rayon d'une cellule</label>
+      <label class="toggle"><input type="checkbox" id="obstacles"> obstacles</label>
+    </div>
+
+    <hr>
+    <div class="legend">
+      <b>Lecture rapide</b> — pour chaque robot <code>i</code>, l'état est mis à jour par
+      <code>dxᵢ/dt = −xᵢ + Σⱼ A·yⱼ + I</code>, la somme portant uniquement sur les
+      voisins <code>j</code> à portée. A₁, A₂, A₃ pondèrent séparation, alignement et
+      cohésion — le comportement d'essaim est purement émergent.
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  let W, H, DPR;
+
+  function resize(){
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    const rect = canvas.parentElement.getBoundingClientRect();
+    W = rect.width; H = rect.height;
+    canvas.width = Math.floor(W * DPR);
+    canvas.height = Math.floor(H * DPR);
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ---- state / params ----
+  const params = {
+    n: 60, r: 70, sep: 1.4, ali: 1.0, coh: 0.9, noise: 0.15, speed: 70,
+    showLinks: true, showRadius: false, obstacles: false
+  };
+
+  let robots = [];
+  let obstacleList = [];
+  let running = true;
+  let t = 0;
+  let lastTs = null;
+
+  function rand(a,b){ return a + Math.random()*(b-a); }
+
+  function seedObstacles(){
+    obstacleList = [];
+    const count = 4;
+    for(let i=0;i<count;i++){
+      obstacleList.push({
+        x: rand(W*0.2, W*0.8),
+        y: rand(H*0.2, H*0.8),
+        r: rand(22, 42)
+      });
+    }
+  }
+
+  function seedRobots(){
+    robots = [];
+    for(let i=0;i<params.n;i++){
+      robots.push({
+        x: rand(0, W),
+        y: rand(0, H),
+        theta: rand(0, Math.PI*2),
+        // cellular state vector x_i (2D): accumulated local heading signal
+        sx: 0, sy: 0,
+        nnb: 0
+      });
+    }
+  }
+
+  function reset(){
+    seedObstacles();
+    seedRobots();
+    t = 0;
+  }
+
+  // ---- CeNN-style local update ----
+  // Each robot = a cell. Neighbourhood = physical robots within radius r.
+  // dx/dt = -x + A1*separation(neighbours) + A2*alignment(neighbours) + A3*cohesion(neighbours) + I(noise, obstacles)
+  function step(dt){
+    const r2 = params.r * params.r;
+
+    for(let i=0;i<robots.length;i++){
+      const a = robots[i];
+      let sepx=0, sepy=0, alix=0, aliy=0, cohx=0, cohy=0, nnb=0;
+
+      for(let j=0;j<robots.length;j++){
+        if(i===j) continue;
+        const b = robots[j];
+        let dx = b.x - a.x, dy = b.y - a.y;
+        const d2 = dx*dx + dy*dy;
+        if(d2 > r2 || d2 < 0.0001) continue;
+        nnb++;
+        const d = Math.sqrt(d2);
+
+        // separation: push away, stronger when close (output nonlinearity ~ 1/d)
+        sepx -= dx / d2; sepy -= dy / d2;
+        // alignment: match neighbour headings
+        alix += Math.cos(b.theta); aliy += Math.sin(b.theta);
+        // cohesion: pull toward neighbour position
+        cohx += dx; cohy += dy;
+      }
+
+      a.nnb = nnb;
+
+      if(nnb > 0){
+        alix /= nnb; aliy /= nnb;
+        cohx /= nnb; cohy /= nnb;
+      }
+
+      // control input I: small noise + obstacle repulsion (sensor term)
+      let ix = rand(-1,1) * params.noise;
+      let iy = rand(-1,1) * params.noise;
+
+      if(params.obstacles){
+        for(const o of obstacleList){
+          let dx = a.x - o.x, dy = a.y - o.y;
+          const d = Math.hypot(dx,dy);
+          const margin = o.r + 26;
+          if(d < margin && d > 0.001){
+            const f = (margin - d) / margin * 4.0;
+            ix += (dx/d) * f; iy += (dy/d) * f;
+          }
+        }
+      }
+
+      // CeNN feedback template A applied to neighbour outputs, plus control input I
+      const targetx = params.sep*sepx + params.ali*alix + params.coh*cohx*0.02 + ix;
+      const targety = params.sep*sepy + params.ali*aliy + params.coh*cohy*0.02 + iy;
+
+      // dx/dt = -x + A*y + I   (explicit Euler, tau=1)
+      a.sx += dt * (-a.sx + targetx);
+      a.sy += dt * (-a.sy + targety);
+
+      // map cell state -> heading command
+      if(a.sx*a.sx + a.sy*a.sy > 1e-6){
+        const desired = Math.atan2(a.sy, a.sx);
+        let diff = desired - a.theta;
+        while(diff > Math.PI) diff -= Math.PI*2;
+        while(diff < -Math.PI) diff += Math.PI*2;
+        const maxTurn = 3.2 * dt;
+        a.theta += Math.max(-maxTurn, Math.min(maxTurn, diff));
+      }
+    }
+
+    // integrate motion + toroidal wrap
+    for(const a of robots){
+      a.x += Math.cos(a.theta) * params.speed * dt;
+      a.y += Math.sin(a.theta) * params.speed * dt;
+      if(a.x < 0) a.x += W; if(a.x > W) a.x -= W;
+      if(a.y < 0) a.y += H; if(a.y > H) a.y -= H;
+    }
+  }
+
+  // ---- render ----
+  function colorForNeighbors(n){
+    // few neighbours -> dim, many -> bright accent (visualises local "activation")
+    const clamp = Math.max(0, Math.min(1, n/8));
+    return clamp;
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+
+    // obstacles
+    if(params.obstacles){
+      ctx.fillStyle = 'rgba(255,180,84,0.14)';
+      ctx.strokeStyle = 'rgba(255,180,84,0.55)';
+      ctx.lineWidth = 1;
+      for(const o of obstacleList){
+        ctx.beginPath(); ctx.arc(o.x,o.y,o.r,0,Math.PI*2); ctx.fill(); ctx.stroke();
+      }
+    }
+
+    // neighbourhood links
+    if(params.showLinks){
+      ctx.strokeStyle = 'rgba(87,201,232,0.16)';
+      ctx.lineWidth = 1;
+      const r2 = params.r*params.r;
+      for(let i=0;i<robots.length;i++){
+        for(let j=i+1;j<robots.length;j++){
+          const a=robots[i], b=robots[j];
+          const dx=a.x-b.x, dy=a.y-b.y;
+          if(dx*dx+dy*dy < r2){
+            ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+          }
+        }
+      }
+    }
+
+    // sensing radius of one representative cell
+    if(params.showRadius && robots.length){
+      const a = robots[0];
+      ctx.strokeStyle = 'rgba(109,255,179,0.35)';
+      ctx.setLineDash([3,4]);
+      ctx.beginPath(); ctx.arc(a.x,a.y,params.r,0,Math.PI*2); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // robots
+    for(const a of robots){
+      const act = colorForNeighbors(a.nnb);
+      const rr = Math.round(87 + act*(109-87));
+      const gg = Math.round(148 + act*(255-148));
+      const bb = Math.round(131 + act*(179-131));
+      ctx.save();
+      ctx.translate(a.x, a.y);
+      ctx.rotate(a.theta);
+      ctx.fillStyle = `rgb(${rr},${gg},${bb})`;
+      ctx.beginPath();
+      ctx.moveTo(7,0);
+      ctx.lineTo(-5,4);
+      ctx.lineTo(-5,-4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function updateTelemetry(){
+    document.getElementById('tRobots').textContent = robots.length;
+    const avgN = robots.length ? (robots.reduce((s,a)=>s+a.nnb,0)/robots.length).toFixed(1) : '0';
+    document.getElementById('tNeighbors').textContent = avgN;
+
+    // cohesion metric: mean distance to swarm centroid, lower = tighter
+    let cx=0, cy=0;
+    for(const a of robots){ cx+=a.x; cy+=a.y; }
+    cx/=robots.length; cy/=robots.length;
+    let md=0;
+    for(const a of robots){ md += Math.hypot(a.x-cx, a.y-cy); }
+    md = robots.length ? (md/robots.length).toFixed(0) : '0';
+    document.getElementById('tCohesion').textContent = md + 'px';
+    document.getElementById('tTime').textContent = t.toFixed(1) + 's';
+  }
+
+  function loop(ts){
+    if(lastTs===null) lastTs = ts;
+    let dt = (ts - lastTs)/1000;
+    lastTs = ts;
+    dt = Math.min(dt, 0.05);
+
+    if(running){
+      t += dt;
+      step(dt);
+    }
+    draw();
+    updateTelemetry();
+    requestAnimationFrame(loop);
+  }
+
+  // ---- UI wiring ----
+  function bindRange(id, key, labelId, fmt){
+    const el = document.getElementById(id);
+    const lab = document.getElementById(labelId);
+    el.addEventListener('input', ()=>{
+      const v = parseFloat(el.value);
+      params[key] = v;
+      lab.textContent = fmt ? fmt(v) : v;
+      if(key==='n'){
+        if(v > robots.length){
+          for(let i=robots.length;i<v;i++){
+            robots.push({x:rand(0,W), y:rand(0,H), theta:rand(0,Math.PI*2), sx:0, sy:0, nnb:0});
+          }
+        } else {
+          robots.length = v;
+        }
+      }
+    });
+  }
+  bindRange('n','n','vN', v=>v);
+  bindRange('r','r','vR', v=>v);
+  bindRange('sep','sep','vSep', v=>v.toFixed(2));
+  bindRange('ali','ali','vAli', v=>v.toFixed(2));
+  bindRange('coh','coh','vCoh', v=>v.toFixed(2));
+  bindRange('noise','noise','vNoise', v=>v.toFixed(2));
+  bindRange('speed','speed','vSpeed', v=>v);
+
+  document.getElementById('showLinks').addEventListener('change', e=> params.showLinks = e.target.checked);
+  document.getElementById('showRadius').addEventListener('change', e=> params.showRadius = e.target.checked);
+  document.getElementById('obstacles').addEventListener('change', e=>{
+    params.obstacles = e.target.checked;
+    if(params.obstacles && obstacleList.length===0) seedObstacles();
+  });
+
+  const playBtn = document.getElementById('play');
+  playBtn.addEventListener('click', ()=>{
+    running = !running;
+    playBtn.textContent = running ? 'Pause' : 'Reprendre';
+  });
+  document.getElementById('reset').addEventListener('click', reset);
+
+  reset();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
